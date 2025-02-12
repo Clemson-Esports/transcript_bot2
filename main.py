@@ -172,7 +172,7 @@ def main():
             log_message = f"<@{interaction.user.id}> ({interaction.user.name}) is not eligible ❌"
 
         await interaction.response.send_message(user_response, ephemeral=True)
-        await bot.log_channel.send(log_message)
+        await bot.get_channel(ELIGIBILITY_LOG_CHANNEL_ID).send(log_message)
         return
 
     bot.run(BOT_API_KEY)
