@@ -7,6 +7,7 @@ import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+from pdfminer.layout import LAParams
 from pdfminer.high_level import extract_text
 
 
@@ -34,7 +35,6 @@ class StudentType(Enum):
 
         return self == StudentType.CONTINUING_GRADUATE or self == StudentType.NEW_GRADUATE
 
-
 @dataclass
 class Student:
 
@@ -61,9 +61,8 @@ class Student:
 
     @staticmethod
     def txt_to_num_credit_hours(txt) -> int:
-
         # Shortens the total transcript to only the relevant part.
-        x = re.search("Credit Hours", txt)
+        x = re.search("PROGRESS", txt)
         txt3 = txt[x.span()[1]:]
         
         # Goes through the current classes, looks for their credit values, and adds it to the 'CreditHours' list.
@@ -81,22 +80,31 @@ class Student:
 
     @staticmethod
     def txt_to_gpa(txt) -> int:
-        
-        # Searches the document for the specific point where it mentions total, overall GPA.
-        # It's a little weird, but on the unofficial transcript, this is the only one that has 2 line breaks before the GPA numbers.
-        # It's because it says (undergraduate) which adds another line break.
-        x = re.search("GPA\n\n....\n....\n....\n", txt)
+        try:
+            # Searches the document for the specific point where it mentions total, overall GPA.
+            # It's a little weird, but on the unofficial transcript, this is the only one that has 2 line breaks before the GPA numbers.
+            # It's because it says (undergraduate) which adds another line break.
+            x = re.search("GPA\n\n....\n....\n....\n", txt)
 
-        # Takes the location of the actual GPA numbers from the document
-        gpaLOC = x.span()[1]
-        gpaLOCNUM1 = int(gpaLOC-5)
-        gpaLOCNUM2 = int(gpaLOC-1)
+            # Takes the location of the actual GPA numbers from the document
+            gpaLOC = x.span()[1]
+            gpaLOCNUM1 = int(gpaLOC-5)
+            gpaLOCNUM2 = int(gpaLOC-1)
 
-        return float(txt[gpaLOCNUM1:gpaLOCNUM2])
+            return float(txt[gpaLOCNUM1:gpaLOCNUM2])
+        except:
+            #this document is formatted differently for some reason. In this document the total GPA is right before the part which says "COURSES IN PROGRESS"
+            x = re.search(r"PROGRESS", txt)
+
+            # Takes the location of the actual GPA numbers from the document
+            gpaLOC = x.span()[0]
+            gpaLOCNUM1 = int(gpaLOC-19)
+            gpaLOCNUM2 = int(gpaLOC-15)
+
+            return float(txt[gpaLOCNUM1:gpaLOCNUM2])
 
     @classmethod
     def from_txt(cls, txt: str):
-
         student_type = cls.txt_to_student_type(txt)
         total_credit_hours = cls.txt_to_num_credit_hours(txt)
 
@@ -145,6 +153,10 @@ def main():
     )
     bot = TranscriptCheckingBot(command_prefix="+", intents=intents, help_command=help_command, log_channel_id=ELIGIBILITY_LOG_CHANNEL_ID)
 
+    @bot.event
+    async def on_ready() -> None:
+        await bot.tree.sync(guild=discord.Object(id=898409703774760980))
+
     @bot.tree.command(name="ping", description="pings the bot to see if it's online")
     async def ping(interaction: discord.Interaction):
 
@@ -159,9 +171,11 @@ def main():
 
         # await interaction.response.defer()
 
+        params = LAParams(all_texts=True)
         pdf_bytes = await file.read()
         with BytesIO(pdf_bytes) as buffer:
-            txt = extract_text(buffer)
+            txt = extract_text(buffer, laparams=params)
+            # txt = extract_text(buffer)
 
         student = Student.from_txt(txt)
         if student.is_eligible():
@@ -172,6 +186,7 @@ def main():
             log_message = f"<@{interaction.user.id}> ({interaction.user.name}) is not eligible ❌"
 
         await interaction.response.send_message(user_response, ephemeral=True)
+        # await bot.log_channel.send(log_message)
         await bot.get_channel(ELIGIBILITY_LOG_CHANNEL_ID).send(log_message)
         return
 
